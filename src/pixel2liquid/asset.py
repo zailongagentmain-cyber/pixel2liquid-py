@@ -2,6 +2,7 @@
 Asset Classifier Module - Classifies and categorizes web assets for local download.
 """
 
+import os
 from dataclasses import dataclass, field
 from typing import Optional
 from urllib.parse import urlparse
@@ -107,6 +108,38 @@ class AssetClassifier:
     def __init__(self):
         self.result = ClassificationResult()
     
+    def _get_local_dir(self, url: str) -> str:
+        """Get local directory path based on source domain and asset type."""
+        domain = get_domain(url)
+        source = DOMAIN_SOURCE_LABELS.get(domain, "other")
+        asset_type = get_asset_type(url) or "other"
+        return f"assets/{source}/{asset_type}"
+    
+    def get_local_path(self, url: str) -> str:
+        """
+        Generate local path for an asset URL.
+        
+        Strips query params from URL and extracts filename from base URL.
+        Directory structure: assets/{source}/{asset_type}/{filename}
+        
+        Example:
+            URL: https://cdn.shopify.com/s/files/1/0234/7891/2345/t/1/assets/product.jpg?v=xxx&width=1066
+            Returns: assets/shopify_cdn/images/product.jpg
+        """
+        # Strip query params - key fix for duplicate file issue
+        base_url = url.split('?')[0]
+        
+        # Extract filename from base URL
+        filename = os.path.basename(base_url)
+        
+        if not filename:
+            return None
+        
+        # Get directory based on source and asset type
+        local_dir = self._get_local_dir(url)
+        
+        return os.path.join(local_dir, filename)
+    
     def classify_asset(self, url: str) -> Optional[AssetInfo]:
         """
         Classify a single asset URL.
@@ -128,7 +161,7 @@ class AssetClassifier:
         
         # Check download domains
         if domain in DOWNLOAD_DOMAINS:
-            local_path = get_local_path(url, asset_type)
+            local_path = self.get_local_path(url)
             source = DOMAIN_SOURCE_LABELS.get(domain, "unknown")
             
             return AssetInfo(
@@ -138,7 +171,7 @@ class AssetClassifier:
             )
         
         # For other domains, also try to download
-        local_path = get_local_path(url, asset_type)
+        local_path = self.get_local_path(url)
         return AssetInfo(
             url=url,
             local_path=local_path,
@@ -181,7 +214,7 @@ class AssetClassifier:
                 
                 # Check download domains
                 if domain in DOWNLOAD_DOMAINS:
-                    local_path = get_local_path(url, asset_type)
+                    local_path = self.get_local_path(url)
                     source = DOMAIN_SOURCE_LABELS.get(domain, "unknown")
                     
                     asset_info = {
@@ -196,7 +229,7 @@ class AssetClassifier:
                 
                 # Other HTTP URLs - also download
                 if url.startswith("http"):
-                    local_path = get_local_path(url, asset_type)
+                    local_path = self.get_local_path(url)
                     asset_info = {
                         "url": url,
                         "local_path": local_path,
@@ -248,3 +281,242 @@ class AssetClassifier:
                 result.skip.setdefault(skip_type, []).extend(items)
         
         return result
+
+
+# =============================================================================
+# AssetDownloader - Async concurrent asset downloader
+# =============================================================================
+
+import asyncio
+import aiohttp
+from datetime import datetime
+from pathlib import Path
+from typing import Optional
+import json
+
+
+@dataclass
+class DownloadRecord:
+    url: str
+    local_path: str
+    source: str
+    size: int = 0
+    status: str = "pending"
+    error: Optional[str] = None
+    content_length: Optional[int] = None
+    downloaded_at: Optional[str] = None
+
+
+@dataclass
+class DownloadResult:
+    total: int = 0
+    success: int = 0
+    failed: int = 0
+    skipped: int = 0
+    records: list = field(default_factory=list)
+    total_bytes: int = 0
+    duration_seconds: float = 0.0
+
+
+class AssetDownloader:
+    MAX_CONCURRENCY = 10
+    FILE_TIMEOUT_SEC = 30
+    TASK_TIMEOUT_SEC = 300
+    CHUNK_SIZE = 8192
+
+    def __init__(
+        self,
+        output_dir: str = "downloads",
+        manifest_path: str = "manifest.json",
+        verify_ssl: bool = True,
+    ):
+        self.output_dir: Path = Path(output_dir)
+        self.manifest_path: Path = Path(manifest_path)
+        self.verify_ssl: bool = verify_ssl
+        self._semaphore: Optional[asyncio.Semaphore] = None
+        self._session: Optional[aiohttp.ClientSession] = None
+        self._started_at: Optional[datetime] = None
+
+    async def download_all(
+        self,
+        to_download: dict,
+        limit: Optional[int] = None,
+    ) -> DownloadResult:
+        tasks = []
+        for asset_type in ["css", "js", "images", "fonts"]:
+            for item in to_download.get(asset_type, []):
+                tasks.append((asset_type, item))
+
+        if limit:
+            tasks = tasks[:limit]
+
+        if not tasks:
+            return DownloadResult()
+
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        result = DownloadResult(total=len(tasks))
+        self._semaphore = asyncio.Semaphore(self.MAX_CONCURRENCY)
+        self._started_at = datetime.now()
+
+        connector = aiohttp.TCPConnector(
+            limit=self.MAX_CONCURRENCY,
+            ssl=False if not self.verify_ssl else None,
+        )
+        timeout_cfg = aiohttp.ClientTimeout(total=self.FILE_TIMEOUT_SEC)
+        self._session = aiohttp.ClientSession(
+            connector=connector,
+            timeout=timeout_cfg,
+        )
+
+        try:
+            async def download_one(asset_type: str, item: dict) -> DownloadRecord:
+                return await self._download_file(asset_type, item)
+
+            coros = [download_one(at, item) for at, item in tasks]
+            records = await asyncio.wait_for(
+                asyncio.gather(*coros, return_exceptions=True),
+                timeout=self.TASK_TIMEOUT_SEC,
+            )
+
+            for rec_or_exc in records:
+                if isinstance(rec_or_exc, Exception):
+                    rec = DownloadRecord(
+                        url="<unknown>",
+                        local_path="<unknown>",
+                        source="unknown",
+                        status="failed",
+                        error=str(rec_or_exc),
+                    )
+                    result.failed += 1
+                    result.records.append(rec)
+                elif isinstance(rec_or_exc, DownloadRecord):
+                    result.records.append(rec_or_exc)
+                    if rec_or_exc.status == "success":
+                        result.success += 1
+                        result.total_bytes += rec_or_exc.size
+                    elif rec_or_exc.status == "failed":
+                        result.failed += 1
+                    elif rec_or_exc.status == "skipped":
+                        result.skipped += 1
+        except asyncio.TimeoutError:
+            result.failed = result.total - result.success - result.skipped
+        finally:
+            await self._session.close()
+            self._session = None
+
+        if self._started_at:
+            result.duration_seconds = (datetime.now() - self._started_at).total_seconds()
+
+        await self._save_manifest(result)
+        return result
+
+    def download_all_sync(
+        self,
+        to_download: dict,
+        limit: Optional[int] = None,
+    ) -> DownloadResult:
+        return asyncio.run(self.download_all(to_download, limit=limit))
+
+    async def _download_file(
+        self,
+        asset_type: str,
+        item: dict,
+    ) -> DownloadRecord:
+        url = item["url"]
+        local_path = item["local_path"]
+        source = item["source"]
+
+        record = DownloadRecord(
+            url=url,
+            local_path=local_path,
+            source=source,
+            status="pending",
+        )
+
+        async with self._semaphore:
+            try:
+                record = await self._do_download(record)
+            except asyncio.TimeoutError:
+                record.status = "failed"
+                record.error = "Timeout"
+            except Exception as exc:
+                record.status = "failed"
+                record.error = str(exc)
+
+        return record
+
+    async def _do_download(self, record: DownloadRecord) -> DownloadRecord:
+        url = record.url
+        local_path = record.local_path
+        abs_path = self.output_dir / local_path
+        abs_path.parent.mkdir(parents=True, exist_ok=True)
+
+        content_length = None
+        actual_size = 0
+
+        async with self._session.get(url) as resp:
+            if resp.status != 200:
+                record.status = "failed"
+                record.error = f"HTTP {resp.status}"
+                return record
+
+            content_length = resp.content_length
+            record.content_length = content_length
+
+            with open(abs_path, "wb") as f:
+                async for chunk in resp.content.iter_chunked(self.CHUNK_SIZE):
+                    f.write(chunk)
+                    actual_size += len(chunk)
+
+        record.size = actual_size
+
+        if actual_size == 0:
+            record.status = "failed"
+            record.error = "Empty file (size = 0)"
+            abs_path.unlink(missing_ok=True)
+            return record
+
+        if content_length is not None and actual_size != content_length:
+            record.status = "failed"
+            record.error = f"Size mismatch: got {actual_size}, expected {content_length}"
+            abs_path.unlink(missing_ok=True)
+            return record
+
+        record.status = "success"
+        record.downloaded_at = datetime.now().isoformat()
+        return record
+
+    async def _save_manifest(self, result: DownloadResult) -> None:
+        manifest = {}
+        for rec in result.records:
+            manifest[rec.url] = {
+                "local_path": rec.local_path,
+                "source": rec.source,
+                "size": rec.size,
+                "status": rec.status,
+                "error": rec.error,
+                "content_length": rec.content_length,
+                "downloaded_at": rec.downloaded_at,
+            }
+
+        with open(self.manifest_path, "w", encoding="utf-8") as f:
+            json.dump(manifest, f, ensure_ascii=False, indent=2)
+
+    def verify_downloaded_files(self, result: DownloadResult) -> dict:
+        ok = []
+        corrupt = []
+        for rec in result.records:
+            if rec.status != "success":
+                continue
+            abs_path = self.output_dir / rec.local_path
+            if not abs_path.exists():
+                corrupt.append(rec.local_path)
+                continue
+            size = abs_path.stat().st_size
+            if size == 0:
+                corrupt.append(rec.local_path)
+            elif rec.content_length is not None and size != rec.content_length:
+                corrupt.append(rec.local_path)
+            else:
+                ok.append(rec.local_path)
+        return {"ok": ok, "corrupt": corrupt}

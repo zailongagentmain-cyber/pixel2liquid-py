@@ -549,16 +549,15 @@ class AssetDownloader:
 
         record.size = actual_size
 
-        # Check: file must not be empty
-        if actual_size == 0:
+        # 智能验证下载结果
+        is_valid, msg = self._validate_download(content_length, actual_size, abs_path)
+        if not is_valid:
             record.status = "failed"
-            record.error = "Empty file (size = 0)"
+            record.error = msg
             abs_path.unlink(missing_ok=True)
             return record
 
         # Check: file must contain valid content (not HTML error page)
-        # Content-Length may not match actual size when CDN sends compressed content
-        # (gzip/brotli). We validate content instead.
         if not self._is_valid_content(record.url, abs_path):
             record.status = "failed"
             record.error = "Invalid content (likely HTML error page)"
@@ -597,6 +596,38 @@ class AssetDownloader:
         except Exception:
             # If we can't read the file, assume it's valid (other checks will catch issues)
             return True
+
+    def _validate_download(self, content_length, actual_size, abs_path):
+        """智能验证下载结果。
+
+        Args:
+            content_length: Content-Length header value (may be None)
+            actual_size: Actual downloaded file size in bytes
+            abs_path: Path to downloaded file
+
+        Returns:
+            (is_valid: bool, message: str)
+        """
+        # Case 1: 完全匹配 - OK
+        if content_length and actual_size == content_length:
+            return True, "OK"
+
+        # Case 2: actual > content 且比例符合压缩特征 - OK (gzip解压)
+        if content_length and actual_size > content_length:
+            ratio = actual_size / content_length
+            if 1.5 < ratio < 5:  # gzip 压缩比通常在 2-3x
+                return True, f"OK (gzip解压后: {actual_size} vs {content_length})"
+
+        # Case 3: actual < content - 真正截断
+        if content_length and actual_size < content_length:
+            return False, f"截断: got {actual_size}, expected {content_length}"
+
+        # Case 4: 无 content-length，只验证非空
+        if actual_size > 0:
+            return True, "OK (无长度校验)"
+
+        # Case 5: 空文件
+        return False, "空文件"
 
     async def _save_manifest(self, result: DownloadResult) -> None:
         manifest = {}

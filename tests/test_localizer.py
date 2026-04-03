@@ -169,9 +169,10 @@ class TestLinkLocalizerHtmlReplacement:
             output_dir=str(temp_dir / 'localized'),
         )
         
-        result = locator.localize_page('www.fandomara.com/index.html')
+        output_path = locator.localize('www.fandomara.com/index.html')
         
         # Should replace with relative path
+        result = output_path.read_text()
         assert '../assets/shopify_cdn/images/hero.webp?v=xxx&width=1066' in result
         print(f"✅ HTML src replaced correctly")
 
@@ -323,8 +324,8 @@ class TestLinkLocalizerQueryParams:
             output_dir=str(temp_dir / 'localized'),
         )
         
-        result = locator.localize_page('index.html')
-        
+        output_path = locator.localize('index.html')
+        result = output_path.read_text()
         assert '?v=abc&width=800' in result
         print(f"✅ Query params preserved in HTML")
     
@@ -419,7 +420,7 @@ class TestLinkLocalizerOutput:
             output_dir=str(output_dir),
         )
         
-        output_path = locator.localize_page_to_file('index.html')
+        output_path = locator.localize('index.html')
         
         assert output_path.exists()
         content = output_path.read_text()
@@ -460,8 +461,8 @@ class TestLinkLocalizerFlatManifest:
             output_dir=str(temp_dir / 'localized'),
         )
         
-        result = locator.localize_page('test.html')
-        
+        output_path = locator.localize('test.html')
+        result = output_path.read_text()
         # Should find local path via flat manifest
         assert 'assets/shopify_cdn/css/base.css' in result
         print(f"✅ Flat manifest full URL match works")
@@ -496,8 +497,8 @@ class TestLinkLocalizerFlatManifest:
             output_dir=str(temp_dir / 'localized'),
         )
         
-        result = locator.localize_page('test.html')
-        
+        output_path = locator.localize('test.html')
+        result = output_path.read_text()
         # Should find local path via base URL match (without query)
         assert 'assets/shopify_cdn/images/hero.webp' in result
         # Query params should be preserved

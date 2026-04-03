@@ -454,7 +454,7 @@ class AssetDownloader:
             elif isinstance(rec_or_exc, DownloadRecord):
                 result.records.append(rec_or_exc)
                 batch_records.append(rec_or_exc)
-                if rec_or_exc.status == "success":
+                if rec_or_exc.status == "downloaded":
                     result.success += 1
                     result.total_bytes += rec_or_exc.size
                 elif rec_or_exc.status == "failed":
@@ -549,18 +549,54 @@ class AssetDownloader:
 
         record.size = actual_size
 
+        # Check: file must not be empty
         if actual_size == 0:
             record.status = "failed"
             record.error = "Empty file (size = 0)"
             abs_path.unlink(missing_ok=True)
             return record
 
-        # Note: Content-Length may not match actual size when CDN sends compressed content
-        # (gzip/brotli). We skip this validation to avoid false failures.
+        # Check: file must contain valid content (not HTML error page)
+        # Content-Length may not match actual size when CDN sends compressed content
+        # (gzip/brotli). We validate content instead.
+        if not self._is_valid_content(record.url, abs_path):
+            record.status = "failed"
+            record.error = "Invalid content (likely HTML error page)"
+            abs_path.unlink(missing_ok=True)
+            return record
 
-        record.status = "success"
+        record.status = "downloaded"
         record.downloaded_at = datetime.now().isoformat()
         return record
+
+    def _is_valid_content(self, url: str, abs_path: Path) -> bool:
+        """Check if downloaded file contains valid content, not an HTML error page.
+        
+        Returns True if the file appears to be a valid resource (JS/CSS/image),
+        False if it appears to be an HTML error page.
+        """
+        try:
+            with open(abs_path, "rb") as f:
+                header = f.read(256)
+            
+            if not header:
+                return False
+            
+            # Check for HTML doctype or html tag (common error page signatures)
+            if b"<!DOCTYPE" in header or b"<html" in header or b"<HTML" in header:
+                return False
+            
+            # Check for common HTML error patterns
+            lower_header = header.lower()
+            if b"<head>" in lower_header or b"<title>" in lower_header:
+                return False
+            if b"charset=" in lower_header and b"text/html" in lower_header:
+                return False
+            
+            return True
+        except Exception:
+            # If we can't read the file, assume it's valid (other checks will catch issues)
+            return True
 
     async def _save_manifest(self, result: DownloadResult) -> None:
         manifest = {}
@@ -579,10 +615,15 @@ class AssetDownloader:
             json.dump(manifest, f, ensure_ascii=False, indent=2)
 
     def verify_downloaded_files(self, result: DownloadResult) -> dict:
+        """Verify downloaded files are valid (not empty, not HTML error pages).
+        
+        Note: Does NOT check Content-Length because CDN compression causes
+        decompressed size to differ from Content-Length header.
+        """
         ok = []
         corrupt = []
         for rec in result.records:
-            if rec.status != "success":
+            if rec.status != "downloaded":
                 continue
             abs_path = self.output_dir / rec.local_path
             if not abs_path.exists():
@@ -591,8 +632,15 @@ class AssetDownloader:
             size = abs_path.stat().st_size
             if size == 0:
                 corrupt.append(rec.local_path)
-            elif rec.content_length is not None and size != rec.content_length:
-                corrupt.append(rec.local_path)
-            else:
-                ok.append(rec.local_path)
+                continue
+            # Check for HTML content (error pages)
+            try:
+                with open(abs_path, "rb") as f:
+                    header = f.read(256)
+                if b"<!DOCTYPE" in header or b"<html" in header or b"<HTML" in header:
+                    corrupt.append(rec.local_path)
+                    continue
+            except Exception:
+                pass  # If we can't read, skip this check
+            ok.append(rec.local_path)
         return {"ok": ok, "corrupt": corrupt}

@@ -206,7 +206,7 @@ class TestAssetDownloaderRealDownload:
             assert "local_path" in info
             assert "source" in info
             assert "status" in info
-            assert info["status"] in ("success", "failed")
+            assert info["status"] in ("downloaded", "failed")
 
     def test_download_with_limit(self, temp_dir, sample_to_download):
         """Download only first 2 files when limit=2."""
@@ -255,7 +255,7 @@ class TestAssetDownloaderIntegrity:
             local_path="assets/css/base.css",
             source="shopify_cdn",
             size=fake_file.stat().st_size,
-            status="success",
+            status="downloaded",
             content_length=fake_file.stat().st_size,
         )
         result = DownloadResult(
@@ -280,7 +280,7 @@ class TestAssetDownloaderIntegrity:
             local_path="assets/css/base.css",
             source="shopify_cdn",
             size=100,
-            status="success",
+            status="downloaded",
         )
         result = DownloadResult(total=1, success=1, records=[rec])
 
@@ -306,7 +306,7 @@ class TestAssetDownloaderIntegrity:
             local_path="assets/css/empty.css",
             source="shopify_cdn",
             size=0,
-            status="success",
+            status="downloaded",
             content_length=0,
         )
         result = DownloadResult(total=1, success=1, records=[rec], total_bytes=0)
@@ -363,7 +363,7 @@ class TestAssetDownloaderRealData:
 
         # Integrity check
         integrity = dl.verify_downloaded_files(dl_result)
-        success_records = [r for r in dl_result.records if r.status == "success"]
+        success_records = [r for r in dl_result.records if r.status == "downloaded"]
         assert len(integrity["ok"]) + len(integrity["corrupt"]) == len(success_records)
 
         # Print summary

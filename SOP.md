@@ -50,6 +50,21 @@ cache/assets_manifest.json
 
 ---
 
+## 5. Subagent 任务模板
+
+**所有 subagent 任务必须使用标准模板**：
+- 模板文件：`SUBAGENT_TEMPLATE.md`
+- 每次派任务时复制模板，填充内容
+- **关键步骤**：
+  1. 编码
+  2. 测试
+  3. `git add → git commit → git push`
+  4. 向主 session 汇报结果
+
+**严禁**：只写代码不 commit、不汇报
+
+---
+
 ## 小模块开发流程（核心）
 
 ### 技术栈讨论

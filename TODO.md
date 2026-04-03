@@ -4,6 +4,38 @@
 
 ---
 
+## Phase 2: 资源本地化（讨论确定 2026-04-03）
+
+### 目标
+将页面的所有核心资源下载到本地，替换 HTML 中的引用
+
+### 模块顺序
+1. **AssetClassifier** - 资源分类（哪些下载/跳过）
+2. **AssetDownloader** - 资源下载（异步并发）
+3. **ManifestManager** - 清单管理（URL → 本地路径）
+4. **LinkLocalizer** - 链接替换（HTML/CSS 中的引用）
+5. **PageRenderer** - 页面渲染（Vercel 部署测试）
+
+### 测试页面
+`collections/all` - 产品集合页
+
+### 资源分类规则
+| 来源 | 处理 |
+|------|------|
+| `cdn.shopify.com` | ✅ 本地化 |
+| `fonts.googleapis.com` | ❌ 不下载 |
+| `assets.gemcommerce.com` | ✅ 本地化 |
+
+### 防 OOM 措施
+- 并发限制（10-20 个）
+- 单文件超时（30s）
+- 流式写入
+
+### 设计文档
+已更新 DESIGN.md
+
+---
+
 ## Phase 1: 网页采集
 
 ### 已完成

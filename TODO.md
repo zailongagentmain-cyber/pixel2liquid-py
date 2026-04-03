@@ -6,16 +6,22 @@
 
 ## 项目初始化
 
-- [ ] 确定技术栈细节（httpx vs aiohttp）
-- [ ] 初始化 Python 项目（uv）
+## 项目初始化
+
+- [x] 确定技术栈细节（httpx vs aiohttp）
+- [x] 初始化 Python 项目（uv）
 - [ ] 配置 black/ruff/mypy
-- [ ] 建立目录结构
+- [x] 建立目录结构
 
 ---
 
 ## Phase 1: 网页采集
 
 - [ ] 基础页面采集（单页面）
+  - [x] `check_page_accessible()` - 检测页面可访问性 ✅
+  - [ ] `fetch_single_page()` - 获取单个页面 HTML
+  - [ ] `extract_links()` - 提取页面链接
+  - [ ] `extract_assets()` - 提取资源链接
 - [ ] 资源链接提取（CSS/JS/Images/Fonts）
 - [ ] 站内链接追踪
 - [ ] 断点续传

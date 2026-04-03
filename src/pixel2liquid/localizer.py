@@ -78,14 +78,21 @@ def parse_url_with_query(url: str) -> tuple[str, str]:
 
 def is_cdn_url(url: str) -> bool:
     """Check if URL is a CDN asset URL (not a full page URL)."""
-    if not url or not url.startswith('http'):
+    if not url:
         return False
     
-    parsed = urlparse(url)
+    # Normalize protocol-relative URLs (//cdn.shopify.com/... → https://cdn.shopify.com/...)
+    normalized = url
+    if url.startswith('//'):
+        normalized = 'https:' + url
+    elif not url.startswith('http'):
+        return False
+    
+    parsed = urlparse(normalized)
     path = parsed.path.lower()
     
     # Skip data URLs
-    if url.startswith('data:'):
+    if normalized.startswith('data:'):
         return False
     
     # Skip page URLs (no file extension or .html)
@@ -177,26 +184,31 @@ class LinkLocalizer:
         Replace a single URL with local relative path.
         
         Args:
-            url: Full CDN URL (may have query params)
+            url: Full CDN URL (may have query params, supports protocol-relative //)
             from_file: HTML/CSS file being processed
         
         Returns:
             Replacement URL (relative path with query params preserved)
         """
-        if not url or not url.startswith('http'):
+        if not url:
             return url
         
-        if not is_cdn_url(url):
-            return url
+        # Normalize protocol-relative URLs to https: for processing
+        normalized_url = url
+        if url.startswith('//'):
+            normalized_url = 'https:' + url
         
-        # Look up in manifest
-        local_path = self._find_local_path(url)
+        if not is_cdn_url(normalized_url):
+            return url  # Return original if not a CDN asset
+        
+        # Look up in manifest (try both normalized and original URL)
+        local_path = self._find_local_path(normalized_url) or self._find_local_path(url)
         if local_path is None:
             # Not in manifest - keep original
             return url
         
         # Preserve query string from original URL
-        _, query = parse_url_with_query(url)
+        _, query = parse_url_with_query(normalized_url)
         
         # Calculate relative path
         rel_path = calc_relative_path(from_file, local_path)

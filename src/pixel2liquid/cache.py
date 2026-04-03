@@ -145,7 +145,7 @@ class CacheManager:
         else:
             return 'root'
     
-    def save_page(self, url: str, html: str) -> str:
+    def save_page(self, url: str, html: str) -> tuple[str, str]:
         """
         保存页面 HTML 到本地
         
@@ -154,15 +154,47 @@ class CacheManager:
             html: 页面 HTML 内容
             
         Returns:
-            保存的本地文件路径
+            (规范化 URL, 保存的文件路径)
         """
-        file_path = self._url_to_path(url)
+        # 规范化 URL（去除尾随斜杠）
+        normalized_url = self._normalize_url_for_key(url)
+        
+        file_path = self._url_to_path(normalized_url)
         file_path.parent.mkdir(parents=True, exist_ok=True)
         
         with open(file_path, 'w', encoding='utf-8') as f:
             f.write(html)
         
-        return str(file_path)
+        return normalized_url, str(file_path)
+    
+    def _normalize_url_for_key(self, url: str) -> str:
+        """
+        规范化 URL 作为状态字典的 key
+        
+        处理规则：
+        1. 移除协议
+        2. 统一尾随斜杠（/ → 空）
+        3. 小写化
+        
+        Args:
+            url: 原始 URL
+            
+        Returns:
+            规范化后的 URL（不带协议，作为 key 使用）
+        """
+        parsed = urlparse(url)
+        path = parsed.path
+        
+        # 统一尾随斜杠：/ 和 空 都表示首页
+        if path == '/' or path == '':
+            path = ''
+        elif path.endswith('/'):
+            path = path.rstrip('/')
+        
+        # 组合：域名 + 路径
+        normalized = f"{parsed.netloc}{path}"
+        
+        return normalized.lower()
     
     def load_page(self, url: str) -> Optional[str]:
         """
@@ -174,7 +206,9 @@ class CacheManager:
         Returns:
             页面 HTML 内容，如果不存在返回 None
         """
-        file_path = self._url_to_path(url)
+        # 规范化 URL
+        normalized_url = self._normalize_url_for_key(url)
+        file_path = self._url_to_path(normalized_url)
         
         if file_path.exists():
             with open(file_path, 'r', encoding='utf-8') as f:
@@ -192,7 +226,9 @@ class CacheManager:
         Returns:
             True 如果已缓存
         """
-        file_path = self._url_to_path(url)
+        # 规范化 URL
+        normalized_url = self._normalize_url_for_key(url)
+        file_path = self._url_to_path(normalized_url)
         return file_path.exists()
     
     def save_state(self, state_data: dict):

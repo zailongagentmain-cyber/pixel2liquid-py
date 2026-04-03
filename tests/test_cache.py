@@ -58,6 +58,11 @@ def test_cache_manager__trailing_slash():
         assert cache.has_page("https://www.fandomara.com/")
         assert cache.load_page("https://www.fandomara.com") == html
         assert cache.load_page("https://www.fandomara.com/") == html
+        
+        # 规范化 URL 验证
+        norm1 = cache._normalize_url_for_key("https://www.fandomara.com")
+        norm2 = cache._normalize_url_for_key("https://www.fandomara.com/")
+        assert norm1 == norm2
 
 
 def test_cache_manager__save_and_load_page():
@@ -69,8 +74,9 @@ def test_cache_manager__save_and_load_page():
         html = "<html><body>Test Page</body></html>"
         
         # 保存
-        saved_path = cache.save_page(url, html)
+        normalized_url, saved_path = cache.save_page(url, html)
         assert Path(saved_path).exists()
+        assert "www.fandomara.com" in normalized_url
         
         # 加载
         loaded = cache.load_page(url)

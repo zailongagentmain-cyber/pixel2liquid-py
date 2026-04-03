@@ -15,6 +15,9 @@
 - [ ] `CrawlState` - 爬取状态保存，断点续传 ✅ (2026-04-03)
 - [ ] `SiteCrawler` - 流式爬取，每10页面反馈 ✅ (2026-04-03)
 - [ ] `CacheManager` - 本地缓存管理，避免重复爬取 ✅ (2026-04-03)
+- [x] **Phase 1 完整缓存** - 60页面元数据 + 59个HTML文件 ✅ (2026-04-03)
+  - `cache/www.fandomara.com/crawl_state.json`
+  - `cache/www.fandomara.com/pages/`
 
 ### 待完成
 - [ ] 站内链接追踪（多页面）

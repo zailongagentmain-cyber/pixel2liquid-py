@@ -129,6 +129,10 @@ class LinkLocalizer:
         """
         Find local path for a full CDN URL from manifest.
         
+        Supports two manifest structures:
+        1. Flat: { "https://cdn.shopify.com/.../base.css?v=xxx": { "local_path": "..." } }
+        2. Nested: { "assets": { "domain": { "files": { "filename": { "local_path": "..." } } } } }
+        
         Args:
             full_url: Full asset URL with query params (e.g., 
                       'https://cdn.shopify.com/.../hero.webp?v=xxx&width=1066')
@@ -139,13 +143,27 @@ class LinkLocalizer:
         """
         manifest = self._load_manifest()
         
-        # Parse URL
-        base_url, _ = parse_url_with_query(full_url)
+        # Case 1: Flat manifest structure - URL as key directly
+        # manifest = { "https://cdn.shopify.com/.../base.css?v=xxx": { "local_path": "..." } }
+        if full_url in manifest:
+            return manifest[full_url].get('local_path')
+        
+        # Case 2: Flat manifest - try base URL without query string
+        base_url = full_url.split('?')[0]
+        if base_url in manifest:
+            return manifest[base_url].get('local_path')
+        
+        # Case 3: Flat manifest - prefix match (URL starts with manifest key)
+        for url, data in manifest.items():
+            if full_url.startswith(url) or url.startswith(base_url):
+                return data.get('local_path')
+        
+        # Case 4: Nested manifest structure (legacy)
+        # manifest = { "assets": { "domain": { "files": { "filename": { "local_path": "..." } } } } }
         parsed = urlparse(base_url)
         domain = parsed.netloc.lower()
         filename = parsed.path.split('/')[-1]
         
-        # Look up in manifest
         if domain in manifest.get('assets', {}):
             source_data = manifest['assets'][domain]
             files = source_data.get('files', {})

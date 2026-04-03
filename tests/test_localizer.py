@@ -427,6 +427,84 @@ class TestLinkLocalizerOutput:
         print(f"✅ Output saved to {output_path}")
 
 
+class TestLinkLocalizerFlatManifest:
+    """Test flat manifest structure (URL as key directly)."""
+    
+    def test_flat_manifest_full_url_match(self, temp_dir):
+        """Flat manifest with full URL as key (including query)."""
+        # Flat manifest structure: URL as key directly
+        manifest_data = {
+            "https://cdn.shopify.com/s/files/1/0234/base.css?v=xxx": {
+                "local_path": "assets/shopify_cdn/css/base.css",
+                "status": "downloaded",
+            }
+        }
+        manifest_path = temp_dir / 'manifest.json'
+        with open(manifest_path, 'w') as f:
+            json.dump(manifest_data, f)
+        
+        pages_dir = temp_dir / 'pages'
+        pages_dir.mkdir()
+        html_content = '<link rel="stylesheet" href="https://cdn.shopify.com/s/files/1/0234/base.css?v=xxx">'
+        html_path = pages_dir / 'test.html'
+        with open(html_path, 'w') as f:
+            f.write(html_content)
+        
+        assets_dir = temp_dir / 'assets'
+        assets_dir.mkdir()
+        
+        locator = LinkLocalizer(
+            manifest_path=str(manifest_path),
+            pages_dir=str(pages_dir),
+            assets_dir=str(assets_dir),
+            output_dir=str(temp_dir / 'localized'),
+        )
+        
+        result = locator.localize_page('test.html')
+        
+        # Should find local path via flat manifest
+        assert 'assets/shopify_cdn/css/base.css' in result
+        print(f"✅ Flat manifest full URL match works")
+    
+    def test_flat_manifest_base_url_match(self, temp_dir):
+        """Flat manifest with query string in URL but lookup may omit query."""
+        manifest_data = {
+            "https://cdn.shopify.com/s/files/1/0234/hero.webp": {
+                "local_path": "assets/shopify_cdn/images/hero.webp",
+                "status": "downloaded",
+            }
+        }
+        manifest_path = temp_dir / 'manifest.json'
+        with open(manifest_path, 'w') as f:
+            json.dump(manifest_data, f)
+        
+        pages_dir = temp_dir / 'pages'
+        pages_dir.mkdir()
+        # URL with query params
+        html_content = '<img src="https://cdn.shopify.com/s/files/1/0234/hero.webp?v=abc&width=800">'
+        html_path = pages_dir / 'test.html'
+        with open(html_path, 'w') as f:
+            f.write(html_content)
+        
+        assets_dir = temp_dir / 'assets'
+        assets_dir.mkdir()
+        
+        locator = LinkLocalizer(
+            manifest_path=str(manifest_path),
+            pages_dir=str(pages_dir),
+            assets_dir=str(assets_dir),
+            output_dir=str(temp_dir / 'localized'),
+        )
+        
+        result = locator.localize_page('test.html')
+        
+        # Should find local path via base URL match (without query)
+        assert 'assets/shopify_cdn/images/hero.webp' in result
+        # Query params should be preserved
+        assert '?v=abc&width=800' in result
+        print(f"✅ Flat manifest base URL match with query preservation works")
+
+
 # ------------------------------------------------------------------
 # Fixtures
 # ------------------------------------------------------------------

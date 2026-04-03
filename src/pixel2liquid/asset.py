@@ -617,17 +617,19 @@ class AssetDownloader:
             ratio = actual_size / content_length
             if 1.5 < ratio < 5:  # gzip 压缩比通常在 2-3x
                 return True, f"OK (gzip解压后: {actual_size} vs {content_length})"
+            # actual > content 但比例异常
+            return False, f"异常大小: got {actual_size}, expected {content_length} (ratio={ratio:.1f})"
 
         # Case 3: actual < content - 真正截断
         if content_length and actual_size < content_length:
             return False, f"截断: got {actual_size}, expected {content_length}"
 
-        # Case 4: 无 content-length，只验证非空
-        if actual_size > 0:
-            return True, "OK (无长度校验)"
+        # Case 4: 空文件
+        if actual_size == 0:
+            return False, "空文件"
 
-        # Case 5: 空文件
-        return False, "空文件"
+        # Case 5: 无 content-length，只验证非空
+        return True, "OK (无长度校验)"
 
     async def _save_manifest(self, result: DownloadResult) -> None:
         manifest = {}

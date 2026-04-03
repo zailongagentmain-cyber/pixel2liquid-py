@@ -105,20 +105,50 @@ pytest tests/test_parser.py -v
 
 **技术栈**: 
 - Python 内置 json（状态序列化）
+- dataclass
 
 **实现方式**: 
-- dataclass 保存 discovered_pages、pending_urls、visited_urls
-- save() 方法序列化到 JSON 文件
-- load() 类方法从 JSON 恢复
+- CrawlState 类保存 pages、pending_urls、visited_urls
+- save() 方法每页面保存到 JSON 文件
+- load_or_create() 类方法从 JSON 恢复或创建新状态
+- 流式处理，内存中只保留 pending_urls 集合
 
 **测试方式**: 
 ```bash
-pytest tests/test_state.py::test_crawl_state__save_and_load -v
+pytest tests/test_state.py -v
 ```
 
-**预期结论**: 保存后能正确恢复状态
+**预期结论**: 保存后能正确恢复状态，增量保存正常
 
-**状态**: 🔄 待实现
+**状态**: ✅ 已完成
+
+**日期**: 2026-04-03
+
+---
+
+## SiteCrawler
+
+**目的**: 流式爬取网站，每10个页面反馈进度
+
+**技术栈**: 
+- 使用 spider.fetch_single_page()
+- 使用 parser.parse_page()
+- 使用 state.CrawlState
+
+**实现方式**: 
+- 队列式广度优先遍历
+- 每1个页面保存一次状态
+- 每10个页面打印进度
+- 内存中只保留 pending_urls 集合
+
+**测试方式**: 
+```bash
+pytest tests/test_crawler.py -v
+```
+
+**预期结论**: 成功爬取多个页面，状态正确保存
+
+**状态**: ✅ 已完成
 
 **日期**: 2026-04-03
 

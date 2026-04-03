@@ -1,5 +1,7 @@
 """
 Crawler Module - 网站爬取
+
+使用 CacheManager 确保 URL 规范化
 """
 import time
 from datetime import datetime
@@ -8,119 +10,164 @@ from urllib.parse import urlparse
 
 from .spider import fetch_single_page
 from .parser import parse_page
-from .state import CrawlState, PageRecord
+from .cache import CacheManager
 
 
 def crawl_site(
     start_url: str,
-    output_dir: str,
-    state_file: str = "crawl_state.json",
+    output_dir: str = "cache",
     max_pages: int = None,
     delay: float = 0.5,
     verbose: bool = True,
-) -> CrawlState:
+) -> dict:
     """
-    流式爬取网站
+    流式爬取网站，使用 CacheManager 管理缓存
     
     Args:
         start_url: 起始 URL
-        output_dir: 输出目录
-        state_file: 状态文件名
+        output_dir: 缓存目录
         max_pages: 最大页面数（None = 不限制）
         delay: 请求间隔（秒）
         verbose: 是否打印进度
     
     Returns:
-        CrawlState: 最终爬取状态
+        dict: 爬取状态
     """
-    # 确保输出目录存在
-    Path(output_dir).mkdir(parents=True, exist_ok=True)
-    state_path = f"{output_dir}/{state_file}"
+    # 创建缓存管理器
+    cache = CacheManager(start_url, output_dir)
     
-    # 加载或创建状态
-    state = CrawlState.load_or_create(state_path, start_url)
+    # 初始化已访问和待处理集合
+    visited = set()
+    pending = {start_url}
+    pages_data = {}
+    
+    # 加载已有状态
+    existing_state = cache.load_state()
+    if existing_state and existing_state.get('pages'):
+        pages_data = existing_state['pages']
+        visited = set(pages_data.keys())
+        # 从已有页面提取未处理的链接
+        for url, page_data in pages_data.items():
+            for link in page_data.get('internal_links', []):
+                normalized = normalize_url(link)
+                if normalized and normalized not in visited:
+                    pending.add(link)
     
     if verbose:
         print(f"🔍 开始爬取: {start_url}")
-        print(f"📁 输出目录: {output_dir}")
-        print(f"📊 初始待爬取: {len(state.pending_urls)}")
-        print(f"📊 已访问: {state.visited_count}")
+        print(f"📁 缓存目录: {cache.cache_root}")
+        print(f"📊 已有页面: {len(visited)}")
+        print(f"📊 待爬取: {len(pending)}")
         print("-" * 50)
     
     # 主循环
-    while True:
-        # 检查是否完成
-        if state.is_complete():
-            if verbose:
-                print(f"\n✅ 爬取完成！")
-            break
-        
+    while pending:
         # 检查最大页面数
-        if max_pages and state.visited_count >= max_pages:
+        if max_pages and len(visited) >= max_pages:
             if verbose:
                 print(f"\n✅ 达到最大页面数 ({max_pages})")
             break
         
-        # 获取下一个 URL
-        url = state.get_next()
-        if not url:
-            break
+        url = pending.pop()
         
-        # 跳过外部域名
-        parsed = urlparse(url)
-        if parsed.netloc != state.base_domain:
+        # 规范化 URL
+        normalized = normalize_url(url)
+        if not normalized:
             continue
         
-        # 获取页面
+        # 跳过已访问
+        if normalized in visited:
+            continue
+        
+        # 只处理站内链接
+        parsed = urlparse(url)
+        if parsed.netloc != cache.base_domain:
+            continue
+        
         if verbose:
-            print(f"[{state.visited_count + 1}] 爬取: {url[:60]}...")
+            print(f"[{len(visited) + 1}] {normalized[:60]}...")
         
         try:
             # 获取 HTML
-            fetch_result = fetch_single_page(url)
-            if fetch_result is None:
-                state.mark_failed(url, "fetch failed")
+            result = fetch_single_page(url)
+            if result is None:
+                # 失败也记录
+                pages_data[normalized] = {
+                    'url': normalized,
+                    'absolute_url': url,
+                    'status': 'failed',
+                    'title': None,
+                    'internal_links': [],
+                    'external_links': [],
+                    'asset_links': {},
+                    'local_path': None,
+                    'error': 'fetch failed',
+                    'discovered_at': datetime.now().isoformat(),
+                    'parsed_at': None,
+                }
+                visited.add(normalized)
                 if verbose:
                     print(f"  ❌ 获取失败")
                 continue
             
             # 解析页面
-            parsed_page = parse_page(fetch_result.html, url)
+            parsed_page = parse_page(result.html, url)
+            
+            # 保存 HTML
+            _, local_path = cache.save_page(url, result.html)
             
             # 创建页面记录
-            page_record = PageRecord(
-                url=url,
-                absolute_url=parsed_page.absolute_url,
-                status="parsed",
-                title=parsed_page.title,
-                internal_links=parsed_page.internal_links,
-                external_links=parsed_page.external_links,
-                asset_links=parsed_page.asset_links,
-                error=None,
-                discovered_at=datetime.now().isoformat(),
-                parsed_at=datetime.now().isoformat(),
-            )
+            pages_data[normalized] = {
+                'url': normalized,
+                'absolute_url': parsed_page.absolute_url,
+                'status': 'parsed',
+                'title': parsed_page.title,
+                'internal_links': parsed_page.internal_links,
+                'external_links': parsed_page.external_links,
+                'asset_links': parsed_page.asset_links,
+                'local_path': local_path,
+                'error': None,
+                'discovered_at': datetime.now().isoformat(),
+                'parsed_at': datetime.now().isoformat(),
+            }
+            visited.add(normalized)
             
-            # 添加到状态
-            state.add_page(url, page_record.to_dict())
-            state.mark_visited(url)
-            
-            # 添加新发现的 URL
-            new_urls = 0
+            # 添加新发现的链接
+            new_count = 0
             for link in parsed_page.internal_links:
-                if link not in state.visited_urls and link not in state.pending_urls:
-                    state.pending_urls.add(link)
-                    new_urls += 1
+                link_normalized = normalize_url(link)
+                if link_normalized and link_normalized not in visited:
+                    pending.add(link)
+                    new_count += 1
             
-            # 每1个页面保存状态
-            state.save(state_path)
+            # 保存状态
+            state_data = {
+                'start_url': start_url,
+                'base_domain': cache.base_domain,
+                'pages': pages_data,
+                'visited_count': len(visited),
+                'pending_count': len(pending),
+            }
+            cache.save_state(state_data)
             
             if verbose:
-                print(f"  ✅ 完成 | 链接: {len(parsed_page.internal_links)} | 资源: {sum(len(v) for v in parsed_page.asset_links.values())} | 新发现: {new_urls} | 待爬: {state.get_pending_count()}")
+                print(f"  ✅ | 链接: {len(parsed_page.internal_links)} | 新发现: {new_count} | 待爬: {len(pending)}")
             
         except Exception as e:
-            state.mark_failed(url, str(e))
-            state.save(state_path)
+            pages_data[normalized] = {
+                'url': normalized,
+                'absolute_url': url,
+                'status': 'failed',
+                'title': None,
+                'internal_links': [],
+                'external_links': [],
+                'asset_links': {},
+                'local_path': None,
+                'error': str(e),
+                'discovered_at': datetime.now().isoformat(),
+                'parsed_at': None,
+            }
+            visited.add(normalized)
             if verbose:
                 print(f"  ❌ 错误: {e}")
         
@@ -129,22 +176,65 @@ def crawl_site(
             time.sleep(delay)
         
         # 每10个页面详细反馈
-        if verbose and state.visited_count % 10 == 0 and state.visited_count > 0:
-            print(f"\n📊 进度报告 ({state.visited_count} 页面)")
-            print(f"   待爬取: {state.get_pending_count()}")
-            print(f"   已访问: {state.visited_count}")
-            print(f"   失败: {state.failed_count}")
-            print(f"   总发现: {state.get_total_discovered()}")
+        if verbose and len(visited) % 10 == 0 and len(visited) > 0:
+            success = sum(1 for p in pages_data.values() if p['status'] == 'parsed')
+            failed = sum(1 for p in pages_data.values() if p['status'] == 'failed')
+            print(f"\n📊 进度报告 ({len(visited)} 页面)")
+            print(f"   成功: {success} | 失败: {failed}")
+            print(f"   待爬取: {len(pending)}")
             print("-" * 50)
     
     # 最终状态
+    success = sum(1 for p in pages_data.values() if p['status'] == 'parsed')
+    failed = sum(1 for p in pages_data.values() if p['status'] == 'failed')
+    
     if verbose:
         print("\n" + "=" * 50)
         print(f"📊 最终统计")
-        print(f"   总页面: {state.get_total_discovered()}")
-        print(f"   已访问: {state.visited_count}")
-        print(f"   失败: {state.failed_count}")
-        print(f"   待爬取: {state.get_pending_count()}")
-        print(f"   状态文件: {state_path}")
+        print(f"   总页面: {len(pages_data)}")
+        print(f"   成功: {success}")
+        print(f"   失败: {failed}")
+        print(f"   缓存目录: {cache.cache_root}")
     
-    return state
+    return {
+        'start_url': start_url,
+        'base_domain': cache.base_domain,
+        'pages': pages_data,
+        'visited_count': len(visited),
+        'success_count': success,
+        'failed_count': failed,
+    }
+
+
+def normalize_url(url: str) -> str:
+    """
+    规范化 URL
+    
+    处理规则：
+    1. 移除协议
+    2. 统一尾随斜杠
+    3. 小写化
+    
+    Args:
+        url: 原始 URL
+        
+    Returns:
+        规范化后的 URL
+    """
+    parsed = urlparse(url)
+    path = parsed.path
+    
+    # 处理尾随斜杠
+    if path == '/' or path == '':
+        path = ''
+    elif path.endswith('/'):
+        path = path.rstrip('/')
+    
+    # 组合：域名 + 路径（如果有查询参数也要加上）
+    normalized = f"{parsed.netloc}{path}"
+    
+    # 如果有查询参数，加上
+    if parsed.query:
+        normalized = f"{normalized}?{parsed.query}"
+    
+    return normalized.lower()

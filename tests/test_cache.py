@@ -38,6 +38,28 @@ def test_cache_manager__url_to_path():
         assert str(path).endswith(".html")
 
 
+def test_cache_manager__trailing_slash():
+    """验证：尾随斜杠统一处理（业务严丝合缝）"""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cache = CacheManager("https://www.fandomara.com", tmpdir)
+        
+        # 有无尾随斜杠应该映射到同一个文件
+        path1 = cache._url_to_path("https://www.fandomara.com")
+        path2 = cache._url_to_path("https://www.fandomara.com/")
+        
+        assert path1 == path2
+        assert str(path1).endswith("index.html")
+        
+        # 保存后，两个 URL 都能读取
+        html = "<html>Test</html>"
+        cache.save_page("https://www.fandomara.com", html)
+        
+        assert cache.has_page("https://www.fandomara.com")
+        assert cache.has_page("https://www.fandomara.com/")
+        assert cache.load_page("https://www.fandomara.com") == html
+        assert cache.load_page("https://www.fandomara.com/") == html
+
+
 def test_cache_manager__save_and_load_page():
     """验证：保存和加载页面"""
     with tempfile.TemporaryDirectory() as tmpdir:

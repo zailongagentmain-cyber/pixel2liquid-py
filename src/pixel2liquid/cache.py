@@ -63,6 +63,35 @@ class CacheManager:
         self.assets_dir.joinpath("images").mkdir(exist_ok=True)
         self.assets_dir.joinpath("fonts").mkdir(exist_ok=True)
     
+    def _normalize_url(self, url: str) -> str:
+        """
+        规范化 URL，确保每个 URL 有唯一表示
+        
+        处理规则：
+        1. 移除协议（http://, https://）
+        2. 统一尾随斜杠（/ → 空字符串）
+        3. 小写化
+        
+        Args:
+            url: 原始 URL
+            
+        Returns:
+            规范化后的 URL
+        """
+        parsed = urlparse(url)
+        
+        # 移除协议，获取路径
+        path = parsed.path
+        
+        # 统一尾随斜杠：/ → 空字符串
+        if path.endswith('/') and len(path) > 1:
+            path = path.rstrip('/')
+        
+        # 组合：域名 + 路径
+        normalized = f"{parsed.netloc}{path}"
+        
+        return normalized.lower()
+    
     def _url_to_path(self, url: str) -> Path:
         """
         将 URL 转换为本地文件路径
@@ -73,11 +102,13 @@ class CacheManager:
         Returns:
             本地文件路径
         """
-        # 移除协议和域名
+        normalized = self._normalize_url(url)
+        
+        # 移除域名得到路径
         parsed = urlparse(url)
         path = parsed.path.lstrip('/')
         
-        if not path:
+        if not path or path == '/':
             path = "index.html"
         elif not path.endswith('.html'):
             path = path + ".html"

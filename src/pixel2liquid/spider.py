@@ -6,6 +6,17 @@ from dataclasses import dataclass
 
 
 @dataclass
+class FetchResult:
+    """页面获取结果"""
+    url: str
+    status_code: int
+    html: str
+    headers: dict
+    content_type: str | None
+    error: str | None
+
+
+@dataclass
 class PageCheckResult:
     """页面检测结果"""
     url: str
@@ -15,6 +26,76 @@ class PageCheckResult:
     has_shopify: bool
     html_length: int
     error: str | None
+
+
+def fetch_single_page(
+    url: str,
+    timeout: float = 30.0,
+    headers: dict | None = None
+) -> FetchResult | None:
+    """
+    获取单个页面 HTML
+    
+    Args:
+        url: 页面 URL
+        timeout: 超时时间（秒）
+        headers: 可选的自定义 headers
+    
+    Returns:
+        FetchResult: 包含 HTML、状态码、headers 等
+        None: 页面不存在（4xx）或请求失败
+    
+    Raises:
+        无异常，直接返回 None 表示失败
+    """
+    default_headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+    if headers:
+        default_headers.update(headers)
+    
+    try:
+        response = httpx.get(
+            url,
+            timeout=timeout,
+            headers=default_headers,
+            follow_redirects=True
+        )
+        
+        # 4xx 返回 None（页面不存在）
+        if 400 <= response.status_code < 500:
+            return None
+        
+        # 5xx 抛异常（服务器错误）
+        if response.status_code >= 500:
+            raise httpx.HTTPStatusError(
+                f"Server error: {response.status_code}",
+                request=response.request,
+                response=response
+            )
+        
+        # 获取 content-type
+        content_type = response.headers.get("content-type", "")
+        
+        return FetchResult(
+            url=url,
+            status_code=response.status_code,
+            html=response.text,
+            headers=dict(response.headers),
+            content_type=content_type,
+            error=None
+        )
+        
+    except httpx.TimeoutException:
+        return None
+        
+    except httpx.RequestError:
+        return None
+        
+    except httpx.HTTPStatusError:
+        return None
 
 
 def check_page_accessible(url: str, timeout: float = 10.0) -> PageCheckResult:

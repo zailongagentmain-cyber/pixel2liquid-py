@@ -34,6 +34,11 @@
 ### 设计文档
 已更新 DESIGN.md
 
+### ⚠️ 待完成：三模块衔接（重要）
+- [ ] AssetClassifier → ManifestManager → AssetDownloader 衔接
+- [ ] 实现断点续传：下载失败后重启能够继续
+- [ ] 龙老板提醒：我会在三个模块开发完后执行此事
+
 ---
 
 ## Phase 1: 网页采集

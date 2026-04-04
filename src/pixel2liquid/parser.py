@@ -113,6 +113,37 @@ def parse_page(html: str, base_url: str) -> ParsedPage:
             absolute = urljoin(base_url, href)
             asset_links["fonts"].append(absolute)
     
+    # <source srcset="..."> - 响应式图片（<picture> 标签内）
+    for source_tag in soup.find_all("source"):
+        srcset = source_tag.get("srcset", "")
+        if srcset:
+            for part in srcset.split(","):
+                url = part.strip().split()[0]
+                if url:
+                    absolute = urljoin(base_url, url)
+                    asset_links["images"].append(absolute)
+    
+    # <meta property="og:image"> - 社交分享图
+    for meta_tag in soup.find_all("meta", property="og:image"):
+        content = meta_tag.get("content", "")
+        if content:
+            absolute = urljoin(base_url, content)
+            asset_links["images"].append(absolute)
+    
+    # <link rel="icon"> - favicon
+    for link_tag in soup.find_all("link", rel="icon"):
+        href = link_tag.get("href", "")
+        if href:
+            absolute = urljoin(base_url, href)
+            asset_links["images"].append(absolute)
+    
+    # <link rel="modulepreload"> - JS 模块预加载
+    for link_tag in soup.find_all("link", rel="modulepreload"):
+        href = link_tag.get("href", "")
+        if href:
+            absolute = urljoin(base_url, href)
+            asset_links["js"].append(absolute)
+    
     # 转换为列表并去重
     return ParsedPage(
         url=base_url,

@@ -178,7 +178,11 @@ class LinkLocalizer:
         
         content = self._replace_src(content, html_file)
         content = self._replace_href(content, html_file)
-        content = self._replace_srcset(content, html_file)
+        content = self._replace_srcset(content, html_file)  # srcset attribute
+        content = self._replace_data_srcset(content, html_file)  # data-srcset attribute (P0)
+        content = self._replace_meta_og_image(content, html_file)  # og:image meta (P1)
+        content = self._replace_link_icon(content, html_file)  # <link rel="icon"> (P1)
+        content = self._replace_import_statements(content, html_file)  # ES module import() (P0)
         
         return content
     

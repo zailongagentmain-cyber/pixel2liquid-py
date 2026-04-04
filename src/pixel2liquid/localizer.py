@@ -247,6 +247,84 @@ class LinkLocalizer:
             flags=re.IGNORECASE,
         )
     
+    def _replace_data_srcset(self, content: str, from_file: str) -> str:
+        """Replace all data-srcset attributes in HTML content (P0)."""
+        def replacer(match):
+            quote = match.group(1)
+            srcset = match.group(2)
+            
+            parts = []
+            for part in srcset.split(','):
+                part = part.strip()
+                if part.startswith('http'):
+                    url_match = re.match(r'(https?://\S+)\s*(\d+\w)?', part)
+                    if url_match:
+                        url = url_match.group(1)
+                        desc = url_match.group(2) or ''
+                        replaced = self._replace_url(url, from_file)
+                        parts.append(f'{replaced} {desc}'.strip())
+                    else:
+                        parts.append(part)
+                else:
+                    parts.append(part)
+            
+            new_srcset = ', '.join(parts)
+            return f'data-srcset={quote}{new_srcset}{quote}'
+        
+        return re.sub(
+            r'''data-srcset\s*=\s*(['"])([^'"]+)\1''',
+            replacer,
+            content,
+            flags=re.IGNORECASE,
+        )
+    
+    def _replace_meta_og_image(self, content: str, from_file: str) -> str:
+        """Replace og:image meta content URLs (P1)."""
+        def replacer(match):
+            content_attr = match.group(1)
+            url = match.group(2)
+            replaced = self._replace_url(url, from_file)
+            return f'content={content_attr}{replaced}{content_attr}'
+        
+        return re.sub(
+            r'''content\s*=\s*(['"])([^'"]+)\1''',
+            replacer,
+            content,
+            flags=re.IGNORECASE,
+        )
+    
+    def _replace_link_icon(self, content: str, from_file: str) -> str:
+        """Replace icon link href attributes (P1)."""
+        def replacer(match):
+            rel = match.group(1)
+            href = match.group(2)
+            if 'icon' in rel.lower():
+                replaced = self._replace_url(href, from_file)
+                return f'href={replaced}'
+            return match.group(0)
+        
+        return re.sub(
+            r'''rel\s*=\s*(['"])([^'"]+)\1\s+href\s*=\s*(['\"])([^'\"]+)\3''',
+            replacer,
+            content,
+            flags=re.IGNORECASE,
+        )
+    
+    def _replace_import_statements(self, content: str, from_file: str) -> str:
+        """Replace ES module import() URLs in JavaScript (P0)."""
+        def replacer(match):
+            quote = match.group(1)
+            url = match.group(2)
+            replaced = self._replace_url(url, from_file)
+            return f'import({quote}{replaced}{quote})'
+        
+        return re.sub(
+            r'''import\s*\(\s*(['"])([^'"]+)\1\s*\)''',
+            replacer,
+            content,
+            flags=re.IGNORECASE,
+        )
+    
     def _replace_css_urls(self, content: str, from_file: str) -> str:
         """Replace all url() references in CSS content."""
         def replacer(match):

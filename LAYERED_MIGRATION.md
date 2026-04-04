@@ -125,3 +125,82 @@
 - [ ] CSS 提取到独立文件
 - [ ] Liquid 模板生成
 - [ ] Shopify 部署
+
+---
+
+## GemPage / GemCommerce 迁移分析（2026-04-04）
+
+### 关键发现
+
+GemPage 的 CSS 类名（如 `gp-*`, `gprow`, `gpcol`）和懒加载 JS 是**强绑定的**：
+
+1. `gp-*` CSS 类依赖 `gp-lazyload.v2.js` 才能正确工作
+2. `gp-lazyload.v2.js` 依赖 Shopify CDN URL 格式处理响应式图片
+3. 这些类名是 GemPage App 特有的，不是标准 CSS
+
+### 组件分类
+
+| 组件 | 能否迁移 | 说明 |
+|------|---------|------|
+| HTML DOM 结构 | ✅ 可以分析 | 作为设计参考 |
+| `gp-*` CSS 类名 | ❌ 不行 | 依赖 GemPage JS |
+| 布局逻辑 (Grid/Flex) | ⚠️ 部分可以 | 需重写选择器 |
+| `gp-lazyload.v2.js` | ❌ 不行 | App 特有 JS |
+| 响应式图片处理 | ⚠️ 可以 | 用 Shopify image_url filter |
+| Shopify 图片 URL 格式 | ✅ 可以 | 下载后重新生成 |
+
+### 迁移方案
+
+**不要尝试复制 `gp-*` 类到目标 Shopify**
+
+正确的做法：
+1. 分析原站 HTML 结构 → 作为设计参考
+2. 用 Shopify 原生 Sections/Blocks 重建区块
+3. 使用 Shopify 的 CSS Grid/Flexbox 实现类似布局
+4. 用 `{{ product.featured_image | image_url: width: 768 }}` 处理响应式图片
+5. Shopify 原生 `loading="lazy"` 替代 GemPage 懒加载
+
+### 示例对比
+
+**原站 (GemPage)**：
+```html
+<div class="gp-grid gp-w-full">
+  <div class="gprow">
+    <div class="gpcol gp-flex">
+      <img class="gps-lazy" data-src="...">
+    </div>
+  </div>
+</div>
+```
+
+**迁移后 (Shopify 原生)**：
+```liquid
+{% schema %}
+{
+  "name": "Custom Grid",
+  "blocks": [
+    { "type": "image" }
+  ]
+}
+{% endschema %}
+
+<div class="custom-grid">
+  {% for block in section.blocks %}
+    <div class="grid-item">
+      {{ block.settings.image | image_url: width: 768 | image_tag: loading: "lazy" }}
+    </div>
+  {% endfor %}
+</div>
+```
+
+### 结论
+
+> ⚠️ App 特有的 CSS/JS 无法直接迁移，需要用 Shopify 原生方案重建
+>
+> 参考原站的设计和布局，用目标平台的原生方式实现
+
+### 待讨论
+
+- [ ] 如何提取"设计规格"而非直接复制代码
+- [ ] Shopify 区块的响应式布局最佳实践
+- [ ] 图片处理：CDN URL → Shopify image_url filter

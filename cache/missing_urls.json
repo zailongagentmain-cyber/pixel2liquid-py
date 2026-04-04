@@ -1,0 +1,18 @@
+{
+  "index_page": {
+    "total_extracted": 87,
+    "by_category": {
+      "css": 22,
+      "js": 40,
+      "images": 23,
+      "fonts": 2
+    },
+    "http_urls": 77,
+    "in_manifest": 75,
+    "missing_from_manifest": 2,
+    "missing_urls": [
+      "http://cdn.shopify.com/s/files/1/0913/4689/5219/files/Pink_and_White_Star_Y2k_Style_Personal_Brand_Logo.png?v=1765627395",
+      "https://cdn.shopify.com/s/files/1/0913/4689/5219/files/ChatGPT_Image_2025_11_11_23_30_48.png?crop=center&height=32&v=1762875545&width=32"
+    ]
+  }
+}

@@ -392,3 +392,103 @@ class ManifestManager:
         self._data = None
         if self.manifest_path.exists():
             self.manifest_path.unlink()
+
+    def sync_with_filesystem(self, assets_dir: str) -> dict:
+        """
+        Scan assets directory and update manifest status to match actual files.
+        
+        This reconciles the manifest with reality:
+        - Files that exist but are marked 'skipped' → update to 'downloaded'
+        - Files marked 'downloaded' but missing → keep status, mark as orphaned
+        - Files in manifest that don't exist on disk → orphaned records
+        - Files on disk but not in manifest → untracked files
+        
+        Args:
+            assets_dir: Path to assets directory to scan
+            
+        Returns:
+            Sync report dict with:
+            - confirmed_downloaded: entries correctly marked as downloaded
+            - needs_status_update: skipped entries that now have files
+            - orphaned_records: entries whose files are missing
+            - untracked_files: files on disk not in manifest
+            - updated_manifest: whether manifest was modified
+        """
+        manifest = self._ensure_loaded()
+        assets_path = Path(assets_dir)
+        
+        # Build URL→local_path lookup for URL-keyed manifest
+        # The manifest keys ARE URLs, values have local_path
+        url_to_local_path = {}
+        local_path_to_url = {}
+        for url, data in manifest.items():
+            if isinstance(data, dict) and "local_path" in data:
+                local_path = data["local_path"]
+                url_to_local_path[url] = local_path
+                local_path_to_url[local_path] = url
+        
+        # Scan actual files on disk
+        disk_files = set()
+        for f in assets_path.rglob("*"):
+            if f.is_file():
+                rel_path = str(f.relative_to(assets_path))
+                disk_files.add(rel_path)
+        
+        # Initialize report
+        report = {
+            "confirmed_downloaded": 0,
+            "needs_status_update": 0,
+            "orphaned_records": 0,
+            "untracked_files": 0,
+            "untracked_file_list": [],
+            "updated_manifest": False,
+        }
+        
+        # Check each manifest entry
+        for url, data in list(manifest.items()):
+            if not isinstance(data, dict):
+                continue
+            
+            local_path = data.get("local_path", "")
+            status = data.get("status", "unknown")
+            file_exists = (assets_path / local_path).exists() if local_path else False
+            
+            if status == "downloaded":
+                if file_exists:
+                    report["confirmed_downloaded"] += 1
+                else:
+                    # File was marked downloaded but doesn't exist
+                    report["orphaned_records"] += 1
+            
+            elif status == "skipped":
+                if file_exists:
+                    # File exists but marked as skipped - update to downloaded
+                    data["status"] = "downloaded"
+                    data["downloaded_at"] = datetime.now().isoformat()
+                    report["needs_status_update"] += 1
+                    report["updated_manifest"] = True
+                else:
+                    # Skipped and file doesn't exist
+                    report["orphaned_records"] += 1
+            
+            elif status == "failed":
+                # Check if file now exists
+                if file_exists:
+                    data["status"] = "downloaded"
+                    data["downloaded_at"] = datetime.now().isoformat()
+                    report["needs_status_update"] += 1
+                    report["updated_manifest"] = True
+                else:
+                    report["orphaned_records"] += 1
+        
+        # Find untracked files (on disk but not in manifest)
+        manifest_local_paths = set(local_path_to_url.keys())
+        untracked = disk_files - manifest_local_paths
+        report["untracked_files"] = len(untracked)
+        report["untracked_file_list"] = sorted(list(untracked))[:50]  # Limit to 50 for readability
+        
+        # Save if updated
+        if report["updated_manifest"]:
+            self.save(manifest)
+        
+        return report

@@ -11,7 +11,6 @@ import pytest
 from pixel2liquid.localizer import (
     calc_relative_path,
     is_cdn_url,
-    parse_url_with_query,
     LinkLocalizer,
 )
 
@@ -57,30 +56,6 @@ class TestCalcRelativePath:
         )
         # Same parent dir, should use ./
         assert './' in result or result == '.'
-
-
-class TestParseUrlWithQuery:
-    """Test URL query string parsing."""
-    
-    def test_url_with_query(self):
-        base, query = parse_url_with_query(
-            'https://cdn.shopify.com/s/files/1/0234/7891/2345/t/1/assets/hero.webp?v=xxx&width=1066'
-        )
-        assert query == '?v=xxx&width=1066'
-        assert '?' not in base
-    
-    def test_url_without_query(self):
-        base, query = parse_url_with_query(
-            'https://cdn.shopify.com/s/files/1/0234/7891/2345/t/1/assets/hero.webp'
-        )
-        assert query == ''
-        assert base == 'https://cdn.shopify.com/s/files/1/0234/7891/2345/t/1/assets/hero.webp'
-    
-    def test_url_only_query(self):
-        base, query = parse_url_with_query(
-            'https://cdn.shopify.com/s/files/1/0234/7891/2345/t/1/assets/hero.webp?v=abc'
-        )
-        assert query == '?v=abc'
 
 
 class TestIsCdnUrl:
@@ -171,9 +146,10 @@ class TestLinkLocalizerHtmlReplacement:
         
         output_path = locator.localize('www.fandomara.com/index.html')
         
-        # Should replace with relative path
+        # Should replace with relative path (no query params - Shopify handles them)
         result = output_path.read_text()
-        assert '../assets/shopify_cdn/images/hero.webp?v=xxx&width=1066' in result
+        assert '../assets/shopify_cdn/images/hero.webp' in result
+        assert '?v=xxx' not in result
         print(f"✅ HTML src replaced correctly")
 
 
@@ -228,10 +204,11 @@ class TestLinkLocalizerCssReplacement:
         
         result = locator.localize_css('shopify_cdn/css/base.css')
         
-        # Should replace with relative path
+        # Should replace with relative path (no query params - Shopify handles them)
         # assets/shopify_cdn/css/base.css -> assets/shopify_cdn/images/bg.webp
         # = ../../assets/shopify_cdn/images/bg.webp (from base.css's dir)
-        assert '../../assets/shopify_cdn/images/bg.webp?v=xxx' in result
+        assert '../../assets/shopify_cdn/images/bg.webp' in result
+        assert '?v=xxx' not in result
         print(f"✅ CSS url() replaced correctly: {result.strip()}")
     
     def test_css_url_no_quotes(self, temp_dir):
@@ -282,10 +259,10 @@ class TestLinkLocalizerCssReplacement:
 
 
 class TestLinkLocalizerQueryParams:
-    """Test query parameter preservation."""
+    """Test query parameter handling (Shopify image_url filter handles them)."""
     
-    def test_query_params_preserved_html(self, temp_dir):
-        """Query params preserved in HTML replacement."""
+    def test_query_params_not_preserved_html(self, temp_dir):
+        """Query params NOT preserved in HTML replacement (Shopify handles them)."""
         manifest_data = {
             "version": "1.0",
             "site": "test.com",
@@ -326,11 +303,13 @@ class TestLinkLocalizerQueryParams:
         
         output_path = locator.localize('index.html')
         result = output_path.read_text()
-        assert '?v=abc&width=800' in result
-        print(f"✅ Query params preserved in HTML")
+        # Query params NOT preserved (Shopify image_url filter handles them)
+        assert 'assets/test/image.jpg' in result
+        assert '?v=abc' not in result
+        print(f"✅ Query params NOT preserved (Shopify handles them)")
     
-    def test_query_params_preserved_css(self, temp_dir):
-        """Query params preserved in CSS replacement."""
+    def test_query_params_not_preserved_css(self, temp_dir):
+        """Query params NOT preserved in CSS replacement (Shopify handles them)."""
         manifest_data = {
             "version": "1.0",
             "site": "test.com",
@@ -371,8 +350,10 @@ class TestLinkLocalizerQueryParams:
         
         result = locator.localize_css('test.css')
         
-        assert '?v=xyz' in result
-        print(f"✅ Query params preserved in CSS")
+        # Query params NOT preserved (Shopify handles them)
+        assert 'assets/test/bg.webp' in result
+        assert '?v=xyz' not in result
+        print(f"✅ Query params NOT preserved in CSS (Shopify handles them)")
 
 
 class TestLinkLocalizerOutput:
@@ -501,9 +482,9 @@ class TestLinkLocalizerFlatManifest:
         result = output_path.read_text()
         # Should find local path via base URL match (without query)
         assert 'assets/shopify_cdn/images/hero.webp' in result
-        # Query params should be preserved
-        assert '?v=abc&width=800' in result
-        print(f"✅ Flat manifest base URL match with query preservation works")
+        # Query params NOT preserved (Shopify image_url filter handles them)
+        assert '?v=abc' not in result
+        print(f"✅ Flat manifest base URL match works (query params handled by Shopify)")
 
 
 # ------------------------------------------------------------------

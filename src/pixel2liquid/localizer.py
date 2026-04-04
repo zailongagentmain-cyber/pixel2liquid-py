@@ -14,7 +14,7 @@ Single entry point: localize()
 import os
 import re
 from pathlib import Path
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import urlparse
 
 from pixel2liquid.manifest import ManifestManager
 
@@ -50,13 +50,6 @@ def calc_relative_path(from_file: str, to_file: str) -> str:
     
     return str(Path(relative) / to_path.name)
 
-
-def parse_url_with_query(url: str) -> tuple[str, str]:
-    """Split URL into (base_url, query_string)."""
-    parsed = urlparse(url)
-    query = '?' + parsed.query if parsed.query else ''
-    base = urlunparse((parsed.scheme, parsed.netloc, parsed.path, '', '', ''))
-    return base, query
 
 
 def is_cdn_url(url: str) -> bool:
@@ -225,12 +218,18 @@ class LinkLocalizer:
             parts = []
             for part in srcset.split(','):
                 part = part.strip()
+                
+                # Bug fix: handle protocol-relative URLs
+                if part.startswith('//'):
+                    part = 'https:' + part
+                
                 if part.startswith('http'):
                     url_match = re.match(r'(https?://\S+)\s*(\d+\w)?', part)
                     if url_match:
                         url = url_match.group(1)
                         desc = url_match.group(2) or ''
                         replaced = self._replace_url(url, from_file)
+                        # New approach: no query params, let Shopify image_url filter handle them
                         parts.append(f'{replaced} {desc}'.strip())
                     else:
                         parts.append(part)
@@ -256,12 +255,18 @@ class LinkLocalizer:
             parts = []
             for part in srcset.split(','):
                 part = part.strip()
+                
+                # Bug fix: handle protocol-relative URLs
+                if part.startswith('//'):
+                    part = 'https:' + part
+                
                 if part.startswith('http'):
                     url_match = re.match(r'(https?://\S+)\s*(\d+\w)?', part)
                     if url_match:
                         url = url_match.group(1)
                         desc = url_match.group(2) or ''
                         replaced = self._replace_url(url, from_file)
+                        # New approach: no query params, let Shopify image_url filter handle them
                         parts.append(f'{replaced} {desc}'.strip())
                     else:
                         parts.append(part)
@@ -364,30 +369,37 @@ class LinkLocalizer:
     
     def _find_local_path(self, full_url: str) -> str | None:
         """
-        Find local path for a full CDN URL from manifest.
+        Find local path for a CDN URL from manifest.
         
+        Only compares URL path, ignores query params (Shopify handles them automatically).
         Supports flat manifest (URL as key) and nested manifest structures.
         """
         manifest = self._load_manifest()
         
-        # Case 1: Flat manifest - full URL as key
+        # Extract URL path (without query)
+        parsed = urlparse(full_url)
+        base_url = parsed.netloc + parsed.path  # e.g., cdn.shopify.com/s/files/.../image.jpg
+        
+        # Case 1: Flat manifest - exact match with full URL
         if full_url in manifest:
             return manifest[full_url].get('local_path')
         
-        # Case 2: Flat manifest - base URL without query
-        base_url = full_url.split('?')[0]
+        # Case 2: Flat manifest - base URL match (without query)
         if base_url in manifest:
             return manifest[base_url].get('local_path')
         
-        # Case 3: Flat manifest - prefix match
+        # Case 3: Flat manifest - path match (ignoring query)
         for url, data in manifest.items():
-            if full_url.startswith(url) or url.startswith(base_url):
-                return data.get('local_path')
+            if isinstance(data, dict) and url.startswith('http'):
+                manifest_parsed = urlparse(url)
+                manifest_base = manifest_parsed.netloc + manifest_parsed.path
+                if base_url == manifest_base:
+                    return data.get('local_path')
         
         # Case 4: Nested manifest structure (legacy)
-        parsed = urlparse(base_url)
-        domain = parsed.netloc.lower()
-        filename = parsed.path.split('/')[-1]
+        parsed_for_nested = urlparse(full_url)
+        domain = parsed_for_nested.netloc.lower()
+        filename = parsed_for_nested.path.split('/')[-1]
         
         if domain in manifest.get('assets', {}):
             source_data = manifest['assets'][domain]
@@ -401,16 +413,12 @@ class LinkLocalizer:
         """
         Replace a single URL with local relative path.
         
-        Args:
-            url: Full CDN URL (may have query params, supports protocol-relative //)
-            from_file: HTML/CSS file being processed
-        
-        Returns:
-            Replacement URL (relative path with query params preserved)
+        Note: No query params, Shopify image_url filter handles them automatically.
         """
         if not url:
             return url
         
+        # Handle protocol-relative
         normalized_url = url
         if url.startswith('//'):
             normalized_url = 'https:' + url
@@ -422,7 +430,6 @@ class LinkLocalizer:
         if local_path is None:
             return url
         
-        _, query = parse_url_with_query(normalized_url)
+        # New approach: no query params, return local path directly
         rel_path = calc_relative_path(from_file, local_path)
-        
-        return rel_path + query
+        return rel_path

@@ -11,8 +11,11 @@ Output: localized/*.html, localized/assets/**/*.css
 Single entry point: localize()
 """
 
+import html
+import json
 import os
 import re
+import urllib.parse
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -176,6 +179,7 @@ class LinkLocalizer:
         content = self._replace_meta_og_image(content, html_file)  # og:image meta (P1)
         content = self._replace_link_icon(content, html_file)  # <link rel="icon"> (P1)
         content = self._replace_import_statements(content, html_file)  # ES module import() (P0)
+        content = self._replace_json_attrs(content, html_file)  # gp-data, data-config JSON attributes
         
         return content
     
@@ -315,6 +319,82 @@ class LinkLocalizer:
             flags=re.IGNORECASE,
         )
     
+    def _replace_json_attrs(self, content: str, from_file: str) -> str:
+        """
+        Replace CDN URLs inside JSON attribute values (e.g., gp-data, data-config).
+        
+        Handles single-quoted JSON attributes used by Shopify's GemPages / Geoxml app.
+        Recursively traverses JSON objects to find and replace URL string fields.
+        """
+        # Match single-quoted gp-data and other JSON attributes
+        json_attrs = ['gp-data', 'data-config', 'data-settings', 'data-gempages']
+        
+        def replace_in_json_attr(match: re.Match) -> str:
+            attr_name = match.group(1)  # e.g., 'gp-data'
+            json_str = match.group(2)  # URL-encoded JSON string
+            
+            # URL-decode AND unescape HTML entities (e.g., &quot; → ")
+            try:
+                decoded = urllib.parse.unquote(json_str)
+                decoded = html.unescape(decoded)  # Handle &quot; &amp; etc.
+                # Remove newlines/spaces that might break JSON (gp-data can be pretty-printed)
+                decoded_stripped = re.sub(r'\s+', ' ', decoded).strip()
+                data = json.loads(decoded_stripped)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                return match.group(0)
+            
+            # Recursively replace URLs in the JSON structure
+            # Use a copy to detect changes (compare before vs after serialization)
+            orig_json = json.dumps(data, separators=(',', ':'))
+            self._replace_urls_in_dict(data, from_file)
+            new_json = json.dumps(data, separators=(',', ':'))
+            
+            if new_json == orig_json:
+                return match.group(0)  # No URLs were replaced
+            
+            return f"{attr_name}='{new_json}'"
+        
+        # Pattern: attr_name='{...}' - single-quoted JSON
+        # Build pattern for all known JSON attributes
+        attr_alternatives = '|'.join(re.escape(a) for a in json_attrs)
+        pattern = rf"({attr_alternatives})='([^']+)'"
+        new_content = re.sub(pattern, replace_in_json_attr, content)
+        return new_content
+    
+    def _replace_urls_in_dict(self, obj: dict | list, from_file: str) -> dict | list:
+        """
+        Recursively traverse a dict/list and replace CDN URLs in string fields.
+        Returns the same object (modified in-place) for dict/list, or a new string for replaced URLs.
+        """
+        if isinstance(obj, dict):
+            for key, value in obj.items():
+                if isinstance(value, str) and self._is_cdn_url_string(value):
+                    replaced = self._replace_url(value, from_file)
+                    if replaced != value:
+                        obj[key] = replaced
+                elif isinstance(value, (dict, list)):
+                    self._replace_urls_in_dict(value, from_file)
+        elif isinstance(obj, list):
+            for i, item in enumerate(obj):
+                if isinstance(item, str) and self._is_cdn_url_string(item):
+                    replaced = self._replace_url(item, from_file)
+                    if replaced != item:
+                        obj[i] = replaced
+                elif isinstance(item, (dict, list)):
+                    self._replace_urls_in_dict(item, from_file)
+        return obj
+    
+    def _is_cdn_url_string(self, value: str) -> bool:
+        """Check if a string value looks like a CDN asset URL."""
+        if not isinstance(value, str):
+            return False
+        normalized = value
+        if value.startswith('//'):
+            normalized = 'https:' + value
+        if not normalized.startswith('http'):
+            return False
+        return is_cdn_url(normalized)
+
     def _replace_import_statements(self, content: str, from_file: str) -> str:
         """Replace ES module import() URLs in JavaScript (P0)."""
         def replacer(match):

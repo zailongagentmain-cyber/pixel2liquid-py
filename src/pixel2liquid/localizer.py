@@ -313,7 +313,7 @@ class LinkLocalizer:
             return match.group(0)
         
         return re.sub(
-            r'''rel\s*=\s*(['"])([^'"]+)\1\s+href\s*=\s*(['\"])([^'\"]+)\3''',
+            r'''rel\s*=\s*(['"])([^'"]+)\1[^>]*href\s*=\s*(['\"])([^'\"]+)\3''',
             replacer,
             content,
             flags=re.IGNORECASE,

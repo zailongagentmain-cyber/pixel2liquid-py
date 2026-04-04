@@ -172,14 +172,19 @@ class LinkLocalizer:
         with open(input_path, 'r', encoding='utf-8') as f:
             content = f.read()
         
-        content = self._replace_src(content, html_file)
-        content = self._replace_href(content, html_file)
-        content = self._replace_srcset(content, html_file)  # srcset attribute
-        content = self._replace_data_srcset(content, html_file)  # data-srcset attribute (P0)
-        content = self._replace_meta_og_image(content, html_file)  # og:image meta (P1)
-        content = self._replace_link_icon(content, html_file)  # <link rel="icon"> (P1)
-        content = self._replace_import_statements(content, html_file)  # ES module import() (P0)
-        content = self._replace_json_attrs(content, html_file)  # gp-data, data-config JSON attributes
+        # Bug fix: Use output_dir-relative path so calc_relative_path() resolves
+        # from the correct directory. Without this, relative paths come out as
+        # "assets/..." instead of "../assets/..." because Path().resolve() uses CWD.
+        from_file = str(self.output_dir / html_file)
+        
+        content = self._replace_src(content, from_file)
+        content = self._replace_href(content, from_file)
+        content = self._replace_srcset(content, from_file)  # srcset attribute
+        content = self._replace_data_srcset(content, from_file)  # data-srcset attribute (P0)
+        content = self._replace_meta_og_image(content, from_file)  # og:image meta (P1)
+        content = self._replace_link_icon(content, from_file)  # <link rel="icon"> (P1)
+        content = self._replace_import_statements(content, from_file)  # ES module import() (P0)
+        content = self._replace_json_attrs(content, from_file)  # gp-data, data-config JSON attributes
         
         return content
     
@@ -510,6 +515,13 @@ class LinkLocalizer:
         if local_path is None:
             return url
         
-        # New approach: no query params, return local path directly
-        rel_path = calc_relative_path(from_file, local_path)
+        # Bug fix: When from_file is absolute (output_dir/... for HTML), local_path
+        # needs to be resolved relative to manifest directory. When from_file is
+        # relative (CSS case), use original behavior (resolve both from CWD).
+        if Path(from_file).is_absolute():
+            manifest_dir = self.manifest.manifest_path.parent
+            local_path_abs = str(manifest_dir / local_path)
+            rel_path = calc_relative_path(from_file, local_path_abs)
+        else:
+            rel_path = calc_relative_path(from_file, local_path)
         return rel_path

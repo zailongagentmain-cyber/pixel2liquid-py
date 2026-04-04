@@ -58,6 +58,34 @@
 - 问题已记录：`CHANGELOG.md` - `[2026-04-04] LinkLocalizer 未能处理的 URL 类型`
 - 遗漏分析：25 个 URL PageParser 未提取
 
+### M1-M3 问题汇总（Index 页面分析 2026-04-04）
+
+#### M1: 资源提取 - 基本完成
+- [ ] PageParser 遗漏 data-srcset、og:image 等（P0）
+
+#### M2: 资源下载 - Manifest 不同步 ⚠️
+- [ ] 实际下载了 164 个 Shopify CDN 文件（49MB）
+- [ ] Manifest 记录却只有 66 个 downloaded
+- [ ] 需要重新同步 manifest vs 实际文件
+- [ ] 462 个资源被 skip，需要检查原因
+
+#### M3: URL 替换 - 165 个未替换 ❌
+- [ ] 原因 1：LinkLocalizer 不支持 data-srcset、import() 等（P0）
+- [ ] 原因 2：Manifest 不完整，部分 URL 从未被 PageParser 发现
+- [ ] 需要：先完成 P0 修复，再重新替换
+
+### Shopify 部署限制
+- [ ] 注意：单个 Liquid 文件不能超过 256KB
+- [ ] 需要处理大文件分割
+
+### 复刻工作流（M1-M6）
+- [ ] M1: 单页面资源提取 - index 页面 ✅（77个URL）
+- [ ] M2: 单页面资源下载 - ⚠️ Manifest 不同步
+- [ ] M3: 单页面 URL 替换 - ❌ 165个未替换
+- [ ] M4: 单页面 CSS 提取 - 待开始
+- [ ] M5: 单页面 Liquid 模板生成 - 待开始
+- [ ] M6: Shopify 部署测试 - 待开始
+
 ---
 
 ### 🎨 CSS 优化（未来计划）

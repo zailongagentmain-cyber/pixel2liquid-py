@@ -39,6 +39,53 @@
 - [ ] 实现断点续传：下载失败后重启能够继续
 - [ ] 龙老板提醒：我会在三个模块开发完后执行此事
 
+### 🔧 URL 本地化待修复（2026-04-04 新增）
+
+#### PageParser 遗漏（源头问题）
+- [ ] 添加 `meta[property="og:image"]` content 提取（P0）
+- [ ] 添加 JS 对象 string value 中的 URL 扫描（PageFly/Parkour JSON）（P1）
+- [ ] 添加 JS 变量赋值字符串扫描（Shopify.shopJsCdnBaseUrl）（P2）
+
+#### LinkLocalizer 缺失功能（替换问题）
+- [ ] 添加 `data-srcset` 属性支持（P0）
+- [ ] 添加 ES module `import()` 字符串替换（P0）
+- [ ] 添加 `meta[property="og:image"]` content 替换（P1）
+- [ ] 添加 `<link rel="icon">` href 属性（P1）
+- [ ] 添加 `<link rel="modulepreload">` href 属性（P1）
+- [ ] JS 动态 `script.src` 赋值替换（P2）
+
+#### 分析记录
+- 问题已记录：`CHANGELOG.md` - `[2026-04-04] LinkLocalizer 未能处理的 URL 类型`
+- 遗漏分析：25 个 URL PageParser 未提取
+
+---
+
+### 🎨 CSS 优化（未来计划）
+
+> 龙老板想法：试试彻底解耦重写，但先不执行，完成 URL 本地化后再说
+
+#### 方案 A：抽离 CSS 变量到 `:root {}`
+- **投入**：中
+- **收益**：HTML 更干净，减少冗余
+- **做法**：从内联 `style=""` 中提取 `--variable: value` 到独立 CSS 文件的 `:root {}` 块
+
+#### 方案 B：合并 `<style>` 到外部 CSS
+- **投入**：中高
+- **收益**：减少 HTML 大小，CSS 可缓存
+- **做法**：同类型页面的 style 块合并为 1-2 个 link 引用
+
+#### 方案 C：彻底解耦重写（长期）
+- **投入**：极高
+- **收益**：完整重构，架构清晰
+- **做法**：使用 Shopify Theme Kit / Headless 方案重建
+- **状态**：⚠️ 龙老板想试试，但先不执行
+
+#### 推荐顺序
+1. 先完成 URL 本地化（当前重点）
+2. 后续做 CSS 变量抽离（方案 A）
+3. 可选做 style 合并（方案 B）
+4. 长期考虑方案 C（彻底重写）
+
 ---
 
 ## Phase 1: 网页采集

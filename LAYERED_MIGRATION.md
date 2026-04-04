@@ -204,3 +204,124 @@ GemPage 的 CSS 类名（如 `gp-*`, `gprow`, `gpcol`）和懒加载 JS 是**强
 - [ ] 如何提取"设计规格"而非直接复制代码
 - [ ] Shopify 区块的响应式布局最佳实践
 - [ ] 图片处理：CDN URL → Shopify image_url filter
+
+---
+
+## 响应式图片迁移策略（2026-04-04）
+
+### 核心问题
+
+原站的 `?width=xxx&height=xxx&crop=center` 等 query params 是否需要保留？
+
+**答案：不需要保留 params，要保留的是自适应机制。**
+
+---
+
+### 问题分析
+
+#### 1. Query params 是"结果"不是"机制"
+
+原站的 query params 是 **JS 动态生成的结果**：
+
+```javascript
+// gp-lazyload.v2.js 中的响应式计算
+function v(e, t, n, l, i, r, a) {
+    // 根据屏幕宽度计算需要的尺寸
+    let s = p(o, n);  // 生成 width=xxx
+    // 动态设置 srcset
+}
+```
+
+**不同尺寸的 params 是 JS 根据屏幕宽度计算出来的，不是静态配置。**
+
+#### 2. 自适应机制才是真正有价值的
+
+```html
+<!-- 原站的响应式机制 -->
+<picture>
+  <source media="(min-width: 1024px)" srcset="...width=1885">
+  <source media="(min-width: 768px)" srcset="...width=1200">
+  <img src="...width=800">
+</picture>
+```
+
+**机制** = `srcset` + `sizes` + `<picture>` + `media query`
+
+---
+
+### 迁移策略
+
+#### 方案 A：浏览器原生响应式（推荐）✅
+
+**完全不需要 JS！浏览器自动处理。**
+
+```liquid
+{{ image | image_url: width: 800 }}
+{{ image | image_url: width: 1200 }}
+{{ image | image_url: width: 1885 }}
+
+<img 
+  src="{{ image | image_url: width: 800 }}"
+  srcset="
+    {{ image | image_url: width: 400 }} 400w,
+    {{ image | image_url: width: 800 }} 800w,
+    {{ image | image_url: width: 1200 }} 1200w,
+    {{ image | image_url: width: 1885 }} 1885w
+  "
+  sizes="
+    (max-width: 480px) 100vw,
+    (max-width: 768px) 80vw,
+    50vw
+  "
+>
+```
+
+**工作原理**：
+```
+浏览器视口宽度：375px
+    ↓
+sizes 规则匹配：100vw
+    ↓
+浏览器自动从 srcset 选择最接近的尺寸
+    ↓
+自动加载：...&width=400 或 &width=800
+```
+
+#### 方案 B：JS ResizeObserver（特殊需求）
+
+```javascript
+const observer = new ResizeObserver(entries => {
+  for (const entry of entries) {
+    const width = entry.contentRect.width;
+    const dpr = window.devicePixelRatio || 1;
+    const neededWidth = Math.ceil(width * dpr);
+    
+    // 更新图片
+    imgElement.srcset = `${baseUrl}&width=${neededWidth} ${neededWidth}w`;
+  }
+});
+observer.observe(container);
+```
+
+**大多数情况下不需要，方案 A 已足够。**
+
+---
+
+### 结论
+
+| 旧思路 | 新思路 |
+|--------|--------|
+| 保留 query params | ❌ 不保留，params 是 JS 生成的结果 |
+| 复制静态 URL | ❌ |
+| 保留自适应机制 | ✅ `srcset` + `sizes` + `<picture>` |
+| Shopify 原生方式 | ✅ `image_url` filter + 浏览器原生 |
+
+**Shopify 的 `image_url` filter 本身就是动态的**，在服务器端执行，不需要客户端 JS。
+
+---
+
+### 待测试
+
+- [ ] 验证 Shopify `image_url` filter 生成正确的响应式 URL
+- [ ] 验证 `sizes` 属性在不同视口宽度下的行为
+- [ ] 验证迁移后的页面在不同设备上的显示效果
